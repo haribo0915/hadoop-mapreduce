@@ -8,7 +8,7 @@ import org.apache.hadoop.io.WritableComparable;
 
 public class DateWritableComparable implements WritableComparable<DateWritableComparable>
 {
-	private final static SimpleDateFormat formatter = new SimpleDateFormat("yyyy-MM-dd' T 'HH:mm:ss.SSS");
+	private final static SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd' T 'HH:mm:ss.SSS");
 	private Date date;
 	
 	public Date getDate() {
@@ -30,7 +30,7 @@ public class DateWritableComparable implements WritableComparable<DateWritableCo
 	}
 	
 	public String toString() {
-		return formatter.format(date);
+		return sdf.format(date);
 	}
 
     public int compareTo(DateWritableComparable otherDate) {

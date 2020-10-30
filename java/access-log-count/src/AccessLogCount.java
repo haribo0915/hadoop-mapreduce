@@ -52,9 +52,9 @@ public class AccessLogCount extends Configured implements Tool {
 		String[] splittedTimestampWithColon = splittedTimestampWithSlash[2].split(":");
 		int year = Integer.parseInt(splittedTimestampWithColon[0]);
 		int hour = Integer.parseInt(splittedTimestampWithColon[1]);
-		int minute = Integer.parseInt(splittedTimestampWithColon[2]);
 
-		return new Date(year, month, day, hour, minute);
+		// Fine-tune for special settings in Date constructor
+		return new Date(year-1900, month-1, day, hour, 0);
 	}
 
 	public static class Map extends MapReduceBase implements Mapper<LongWritable, Text, DateWritableComparable, IntWritable> {
@@ -64,16 +64,47 @@ public class AccessLogCount extends Configured implements Tool {
 			IntWritable one = new IntWritable(1);
 			DateWritableComparable dateWritableComparable = new DateWritableComparable();
 			
-			int openBracket = line.indexOf("[");
-			int closeBracket = line.indexOf("]");
+			int openBracket = line.indexOf('[');
+			int closeBracket = line.indexOf(']');
 
 			if (openBracket != -1 && closeBracket != -1) {
-				String timestampWithTimezoneOffset = line.substring(line.indexOf("[")+1, line.indexOf("]"));
+				String timestampWithTimezoneOffset = line.substring(line.indexOf('[')+1, line.indexOf(']'));
 				dateWritableComparable.setDate(preprocessTimestamp(timestampWithTimezoneOffset));
 
 				output.collect(dateWritableComparable, one);
 			}
 		}
+	}
+
+	// In order to let the output of reducer sorted by the key (year, month, day),
+	// we need to write our custom partition algorithm. Otherwise, the default 
+	// partition strategy will use the hash code of Object DateWritableComparable
+	// to assign the key to reducer, which doesn't guarentee any order about date or time.
+	public static class Partition implements Partitioner<DateWritableComparable, IntWritable> {
+		@Override
+		public void configure(JobConf conf) {
+		}
+
+		// the hashCode represesnts a unique (year, month, day);
+		// that is, same (year, month, day) will go to same reducer.
+		private int myHashCode(int year, int month, int day) {
+			int hashCode = 7;
+			
+			hashCode = hashCode*31 + year;
+			hashCode = hashCode*31 + month;
+			hashCode = hashCode*31 + day;
+
+			return hashCode;
+		}
+
+		// numPartitions represents the number of reducers.
+		@Override
+		public int getPartition(DateWritableComparable key, IntWritable value, int numPartitions) {
+			Date date = key.getDate();
+			int hashCode = myHashCode(date.getYear(), date.getMonth(), date.getDay());
+			return hashCode % numPartitions;
+		}
+
 	}
 
 	public static class Reduce extends MapReduceBase implements Reducer<DateWritableComparable, IntWritable, DateWritableComparable, IntWritable> {
@@ -90,7 +121,7 @@ public class AccessLogCount extends Configured implements Tool {
 	@Override
 	public int run(String[] args) throws Exception {
 		Configuration conf = getConf();
-		JobConf job = new JobConf(conf, WordCount.class);
+		JobConf job = new JobConf(conf, AccessLogCount.class);
 
 		Path in = new Path(args[0]);
 		Path out = new Path(args[1]);
@@ -106,6 +137,8 @@ public class AccessLogCount extends Configured implements Tool {
 		job.setMapperClass(Map.class);
 		job.setCombinerClass(Reduce.class);
 		job.setReducerClass(Reduce.class);
+
+		job.setPartitionerClass(Partition.class);
 
 		job.setInputFormat(TextInputFormat.class);
 		job.setOutputFormat(TextOutputFormat.class);
